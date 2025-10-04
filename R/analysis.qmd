@@ -1,0 +1,517 @@
+---
+title: "Multivariate Analysis of Sleep Health"
+subtitle: "LSTAT2110 - Data Analysis Project"
+author: 
+  - "Louis-David PIRON"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Table of content"
+    toc-location: left
+    toc-floating: true
+    number-sections: true
+    theme: cosmo
+    code-fold: true
+    code-tools: true
+    code-summary: "Display code"
+    fig-align: center
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+  echo: true
+---
+
+```{r setup}
+#| include: false
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  fig.width = 8,
+  fig.height = 6,
+  fig.align = "center"
+)
+
+# Set seed for reproducibility
+set.seed(123)
+```
+
+```{r load-dependencies}
+#| output: false
+
+# Load required packages
+suppressPackageStartupMessages({
+  library(FactoMineR)
+  library(factoextra)
+  library(ggplot2)
+  library(corrplot)
+  library(gridExtra)
+  library(cowplot)
+})
+
+# Load custom functions
+source("../R/functions.R")
+
+# Load data
+sleep_data <- load_sleep_data()
+quanti_data <- sleep_data[1:9]
+```
+
+# Introduction
+
+Through this project, we will analyze a dataset containing various information on aspects related to **health**, **sleep**, and **lifestyle** of 374 individuals. At the end of the analysis, the goal will be to explain the potential relationships between these variables and to gain a better understanding of the factors influencing sleep quality.
+
+# Data Overview, Descriptive Analysis
+
+## Dataset Description
+
+Our dataset[^1] includes 374 individuals and 13 variables (of which 4 are categorical). For each individual, the following variables were recorded: `Age` (age in years), `Sleep.Duration` (sleep duration in hours/day), `Quality.of.Sleep` (a subjective self-assessment of sleep quality, from 1 to 10), `Physical.Activity.Level` (daily physical activity in minutes), `Stress.Level` (a subjective self-assessment of stress level, from 1 to 10), `SBP` (systolic blood pressure, in millimeters of mercury [mmHg]), `DBP` (diastolic blood pressure, in millimeters of mercury [mmHg]), `Heart.Rate` (heart rate, in beats per minute [BPM]), `Daily.Steps` (number of steps per day), `Gender` (indicator of biological sex), `Occupation` (job category), `BMI.Category` (category corresponding to body mass index), `Sleep.Disorder` (indicator of a sleep disorder).
+
+
+[^1]: From the following [Kaggle dataset](https://www.kaggle.com/datasets/uom190346a/sleep-health-and-lifestyle-dataset)
+
+::: {.callout-note}
+## Theoretical Note
+
+Blood pressure is indicated by a pair of numbers: **systolic blood pressure** and **diastolic blood pressure**. Systolic blood pressure (`SBP`) is the maximum pressure, occurring during the heart's "contraction" (systole). Diastolic blood pressure (`DBP`) is the minimum pressure, occurring during the heart's "relaxation" (diastole).
+
+These metrics allow us to assess whether a person is suffering from **hypotension** (`SBP` < 90 and `DBP` < 60) or **hypertension** (`SBP` > 140 or `DBP` > 90).
+
+:::
+
+## Descriptive Analysis
+
+As a first step, we analyze the **quantitative variables** individually by examining their distributions :
+
+
+```{r distributions-quantitatives}
+#| fig.height: 8
+#| fig.width: 10
+
+plots_list <- lapply(1:9, function(i) plot_histogram(sleep_data, i))
+do.call(grid.arrange, c(plots_list, ncol = 3))
+```
+
+
+We observe that:
+
+- The majority of respondents are relatively young (<50 years).
+- The average sleep duration is 7.13 hours/day; sleep durations are concentrated around this mean (min: 5.8, max: 8.5), but not evenly distributed.
+- The vast majority of individuals consider themselves to have good sleep quality (self-assessment ≥ 6/10).
+- Physical activity and stress levels are distributed fairly uniformly.
+- Systolic blood pressure and heart rate average around 128 mmHg and 70 BPM, respectively.
+
+
+For more details, the descriptive statistics of the different quantitative variables are presented in @tbl-summary-stats.
+
+Let us now take a look at the **qualitative variables** :
+
+```{r variables-categorielles}
+#| fig.width: 15
+#| fig.height: 6
+
+grid.arrange(
+  plot_categorical(sleep_data, 10, las = 0),
+  plot_categorical(sleep_data, 11, las = 2),
+  plot_categorical(sleep_data, 12, las = 0),
+  plot_categorical(sleep_data, 13, las = 0),
+  ncol = 2
+)
+```
+
+We observe that:
+
+- A similar proportion of men and women were surveyed.
+- Few obese individuals were surveyed.
+- The majority of respondents do not have a sleep disorder.
+
+Finally, we examine pairwise correlations between the variables :
+
+```{r correlation-matrix}
+#| fig.width: 6
+#| fig.height: 5
+
+corrplot(cor(quanti_data), 
+         tl.col = "black",
+         tl.cex = 0.6, 
+         order = "hclust", 
+         addCoef.col = "darkgrey",
+         method = 'number',
+         diag = FALSE, 
+         number.cex = 0.5, 
+         cl.cex = 0.55)
+```
+
+Several variables exhibit strong correlations. For instance, `Heart.Rate` and `Stress.Level` are positively correlated $(\rho = .67)$, while `Stress.Level` and `Quality.of.Sleep` show a strong negative correlation $(\rho = -.9)$.
+
+
+# Principal Component Analysis
+
+```{r pca-computation}
+#| output: false
+
+pca_result <- PCA(quanti_data, graph = FALSE, ncp = 9)
+```
+
+## Choice of the principal components
+
+Usually, the principal components retained are those whose **eigenvalues are greater than 1**. When computing these, we observe that the eigenvalues $\lambda_{1}$, $\lambda_{2}$, and $\lambda_{3}$ are greater than 1 :
+
+::: {.panel-tabset}
+
+### Plot
+
+```{r eigenvalues-plot}
+#| fig.height: 5
+#| fig.width: 7
+
+par(mar = c(5, 4, 4, 5))
+
+# Barplot des valeurs propres
+barplot(pca_result$eig[, "eigenvalue"],
+        xlab = expression(alpha), 
+        ylab = expression(lambda[alpha]),
+        col = "lightgray")
+abline(h = 1, lty = "dashed", col = "red", lwd = 2)
+
+# Ligne de variance cumulée
+par(new = TRUE)
+plot(1:9, pca_result$eig[, "cumulative percentage of variance"], 
+     type = "b",
+     xlab = "", ylab = "", xaxt = "n", yaxt = "n", 
+     col = "red", pch = 16)
+axis(side = 4)
+mtext("% de variance cumulé", side = 4, line = 3)
+```
+
+### Table
+
+```{r}
+#| label: tbl-eigenvalues
+#| tbl-cap: "Eigen Values"
+
+knitr::kable(round(pca_result$eig, 1))
+```
+
+:::
+
+The first factorial plane explains only 69% of the variability in the dataset. This means that we need to be cautious when jointly analyzing the correlation circle and the individuals' map, as some individuals and variables might be poorly represented.
+
+Considering the first three principal components partially addresses this issue, as they explain a substantial proportion of the total variability in the dataset (87%).
+
+However, interpreting in 3D is challenging due to the lack of a package for producing 3D correlation circles. Therefore, we will focus on the first two principal components, removing poorly represented variables and individuals. To determine whether it is still worthwhile to interpret the correlation circle and individuals' map for the first principal plane, we will examine the proportion of variables and individuals that are well represented.
+
+
+## Analysis of Variables
+
+To identify poorly represented variables, we calculate, for each variable, the sum of the cos² values for the first $p$ principal components and display them using a barplot:
+
+
+```{r quality-variables}
+#| fig.width: 10
+#| fig.height: 3.5
+
+par(mfrow = c(1, 2))
+cos2_p2 <- quality_representation_var(pca_result, n_components = 2)
+cos2_p3 <- quality_representation_var(pca_result, n_components = 3)
+```
+
+For the first factorial plane, we observe that the variables `Daily.Steps` and `Physical.Activity.Level` are poorly represented.
+
+Since these two poorly represented variables for $p = 2$ are only weakly correlated ($\rho = -0.04$ and $\rho = 0.2$, respectively) with our variable of interest (`Sleep.Duration`), removing them does not pose a problem for the subsequent analysis.
+
+Note that for $p = 3$ principal components, all variables are well represented.
+
+## Analysis of Individuals
+
+To identify the least well-represented individuals, we also display, as a barplot for each individual, the sum of the $\cos^2$ values for the first two principal components:
+
+```{r quality-individuals}
+#| fig.width: 10
+#| fig.height: 3.5
+
+par(mar = c(2, 1, 1, 1))
+n_poor <- quality_representation_ind(pca_result, n_components = 2)
+```
+
+We observe that `r round(n_poor/nrow(sleep_data)*100, 0)`% of individuals are poorly represented (`r n_poor`/`r nrow(sleep_data)`). For 3 principal components, this ratio decreases to 16% (59/374).
+
+
+## Adding Categorical Variables to the Individuals' Map
+
+We now add our different categorical variables to the individuals' map, considering only those individuals with $\cos^2$ > 0.5:
+
+
+```{r categorical-overlay}
+#| fig.width: 10
+#| fig.height: 8
+#| warning: false
+
+plot1 <- add_categorical_overlay(sleep_data, quanti_data, 10, 0.5)
+plot2 <- add_categorical_overlay(sleep_data, quanti_data, 11, 0.5)
+plot3 <- add_categorical_overlay(sleep_data, quanti_data, 12, 0.5)
+plot4 <- add_categorical_overlay(sleep_data, quanti_data, 13, 0.5)
+
+grid.arrange(plot1, plot2, plot3, plot4, ncol = 2, nrow = 2)
+```
+
+Note that each square corresponding to a category cannot be interpreted due to a cos² value that is too low:
+
+
+```{r quality-categorical}
+#| fig.width: 5
+#| fig.height: 3
+
+quality_representation_categorical(
+  data = sleep_data,
+  quanti_indices = 1:9,
+  quali_indices = 10:13,
+  n_components = 2
+)
+```
+
+For $p = 2$, the categories `Teacher`, `Manager`, `Obese`, `Lawyer`, and `Insomnia` are poorly represented. For $p = 3$, only the categories `Manager` and `Teacher` are poorly represented.
+
+## Interpretation
+
+Now that we know which variables are well represented, we can proceed with the (joint) analysis of the correlation circle and the individuals' map:
+
+
+```{r pca-biplot}
+#| fig.width: 12
+#| fig.height: 5
+
+# Filtre pour ne garder que les variables/individus bien représentés
+plot_var <- fviz_pca_var(pca_result, 
+                         gradient.cols = c("lightblue", "darkblue"),
+                         col.var = "cos2", 
+                         select.var = list(cos2 = 0.5),
+                         title = "") +   
+  theme(legend.position = "none")
+
+plot_ind <- fviz_pca_ind(pca_result, 
+                         gradient.cols = c("lightblue", "darkblue"),
+                         col.ind = "cos2",   
+                         label = "", 
+                         select.ind = list(cos2 = 0.5),
+                         title = "") +   
+  theme(legend.position = "none")
+
+plot_grid(plot_var, plot_ind, ncol = 2, align = 'v')
+```
+
+Let's start with the **correlation circle**. In it, we can distinguish three groups of variables that are strongly correlated with each other: (i) the variables `Heart.Rate` and `Stress.Level`, (ii) the group of variables `DBP` and `SBP`, and (iii) the variables `Quality.of.Sleep` and `Sleep.Duration`.
+
+Since groups (i) and (iii) point in nearly opposite directions, it is clear that heart rate and stress level are negatively associated with both sleep quality and sleep duration.
+
+Similarly, because the variable `Age` points in a direction similar to group (iii), it appears that sleep quality tends to improve with age.
+
+Finally, we observe that group (ii) does not seem to influence sleep quality, as groups (ii) and (iii) are almost orthogonal.
+
+For the **individuals' map**, three clusters appear to form: one in the upper left, one in the upper right, and one at the bottom. The clustering analysis we will perform later may help confirm this observation.
+
+Now, let's move on to the **joint analysis**. By examining the correlation circle together with the individuals' map (including the categorical variables), we can draw the following conclusions:
+
+- In the upper part of the individuals' map, two clusters can be identified. The individuals in these clusters are likely older and hypertensive (high `DBP` and `SBP`). The cluster most affected by hypertension (on the far left) appears to sleep worse than the one on the right. Considering the categorical variables, these individuals are more likely to have sleep apnea, be overweight, and work as nurses.
+
+- Looking more closely at the categorical variables, we observe that: women tend to sleep better than men; salespeople sleep the least well, engineers sleep the best; and individuals with a normal BMI and no sleep disorder tend to sleep better.
+
+# Clustering
+
+In this section, our goal is to determine whether there are natural groups within our dataset. To do this, we will follow a **consolidation procedure**. First, we perform hierarchical clustering (using Ward's criterion) to determine the optimal number of clusters, denoted $q^*$. Then, based on this number $q^*$, we will apply the k-means algorithm.
+
+## Hierarchical Clustering
+
+First, we compute the initial dissimilarity matrix 
+
+$$
+\Delta_{n,ij} = \delta(\{i\}, \{j\}) = \frac{1}{2n} \| \mathbf{x}_i - \mathbf{x}_j \|^2
+$$
+
+This calculation is performed on standardized variables to prevent a variable with a large scale from dominating the distance computations.
+
+
+```{r hierarchical-clustering}
+#| output: false
+
+data_scaled <- scale(quanti_data)
+init_dissimilarity <- dist(data_scaled)^2 / (2 * nrow(data_scaled))
+hclust_ward <- hclust(init_dissimilarity, method = "ward.D")
+```
+
+### Choice of the Number of Clusters
+
+We chose \(q = 4\) because the most abrupt jump occurs between \(q = 3\) and \(q = 4\), while still maintaining a number of clusters that is meaningful for analysis.
+
+
+```{r cluster-selection}
+#| fig.width: 7
+#| fig.height: 4
+
+plot_cluster_heights(hclust_ward, n_display = 11, optimal_k = 4)
+```
+
+### Quality of Cluster Representation
+
+To quantify the quality of our clusters, we examine the ratio 
+
+$$
+\frac{\text{BSS}}{\text{TSS}} \times 100
+$$
+
+Recall that the total sum of squares (TSS) can be decomposed as 
+
+$$
+\text{TSS} = \text{BSS} + \text{WSS}.
+$$
+
+A good partition maximizes the between-cluster sum of squares (BSS), since we want high variability between clusters, and minimizes the within-cluster sum of squares (WSS), since we want low variability within each cluster. In other words, we aim for a BSS/TSS ratio close to 1.
+
+
+```{r bss-tss-hierarchical}
+bss_tss_hier <- calculate_bss_tss(hclust_ward, n_clusters = 4)
+```
+
+In our case, the partition into 4 clusters explains **`r bss_tss_hier`%** of the total variance, indicating a satisfactory representation of the data.
+
+## K-means
+
+After identifying 4 clusters using hierarchical clustering, we apply a K-means algorithm to refine this partition. The goal is to improve the BSS/TSS ratio, as although Ward's algorithm produced a 4-cluster classification, there is no guarantee that it represents the optimal partition into 4 clusters.
+
+
+```{r kmeans-clustering}
+#| output: false
+
+kmeans_model <- kmeans(data_scaled, centers = 4, nstart = 10000)
+
+bss_tss_kmeans <- round((kmeans_model$betweenss / kmeans_model$totss) * 100, 2)
+```
+
+With \(k = 4\), we obtain a ratio of **`r bss_tss_kmeans`%**, slightly higher than that obtained with the hierarchical method (`r bss_tss_hier`%), confirming an improvement in the efficiency of class separation.
+
+## Visualization of Clusters
+
+
+```{r cluster-visualization}
+#| fig.width: 8
+#| fig.height: 6
+
+classes <- kmeans_model$cluster
+pca_clust <- PCA(
+  cbind(quanti_data, class = as.factor(classes)),
+  ncp = 2, 
+  quali.sup = ncol(quanti_data) + 1, 
+  graph = FALSE
+)
+
+fviz_pca_ind(pca_clust,
+             col.ind = "cos2",   
+             label = "", 
+             habillage = "class",
+             addEllipses = TRUE,
+             select.ind = list(cos2 = 0.5),
+             title = "") +
+  theme(legend.position = "right")
+```
+
+This plot represents the PCA individuals' map, with coloring based on the clusters obtained above.
+
+By jointly analyzing these clusters with the graphs obtained during the PCA, we make the following observations:
+
+- The **lower-left quadrant cluster** appears to correspond to young individuals with high stress levels and poor sleep quality. Furthermore, this cluster is close to the centroids of professions such as doctor, manager, computer engineer, and salesperson, suggesting that individuals in this cluster tend to have one of these occupations.
+
+- The **lower-right quadrant cluster** shows more moderate profiles. Located near the origin of the axes, these individuals seem to have balanced levels for most quantitative variables. They are also close to the centroids of `None` (corresponding to the absence of a sleep disorder) and `Normal` (corresponding to a standard BMI), which supports this interpretation.
+
+- The **cluster on the far right** is more dispersed along dimension 2, making it more difficult to interpret. However, it shows better sleep quality than the other clusters, along with lower heart rate and stress levels.
+
+- The **upper-left quadrant cluster** appears to be characterized by atypical profiles. It is strongly associated with the variables `DBP` and `SBP`, suggesting that individuals in this cluster may have a specific disorder, such as hypertension, which could explain their lower sleep quality.
+
+# Multiple Correspondence Analysis
+
+In this section, we explore in more depth the relationships between **sleep** and **health**. To do so, we selected two categorical variables: `BMI.Category` and `Sleep.Disorder`. We then created a new variable, `BP_Profile`, which classifies individuals as "hypotension," "normal," or "hypertension," based on `DBP` and `SBP` values, according to the thresholds presented in the introduction.
+
+To allow comparison with `Sleep.Duration`, we also discretized this variable into three categories: "Below 6.5," "6.5 to 7.5," and "Above 7.5," based on the Public Health France barometer (2017). The intermediate category reflects a sleep duration close to the recommended 7.14 hours for optimal health.
+
+
+```{r mca-preparation}
+#| output: false
+
+sleep_data$Sleep_Category <- categorize_sleep_duration(sleep_data$Sleep.Duration)
+sleep_data$BP_Profile <- create_bp_profile(sleep_data)
+
+mca_vars <- sleep_data[, c("BMI.Category", "Sleep.Disorder", "Sleep_Category", "BP_Profile")]
+mca_result <- MCA(mca_vars, ncp = 5, graph = FALSE)
+```
+
+The first two principal axes capture nearly **`r round(sum(mca_result$eig[1:2, 2]), 1)`%** of the total variability in the dataset, which is relatively satisfactory, considering that the percentage of inertia explained by each axis is lower in MCA than in other factorial methods.
+
+
+```{r mca-eigenvalues}
+#| fig.width: 6
+#| fig.height: 4
+
+barplot(mca_result$eig[, "percentage of variance"], 
+        ylab = "Pourcentage de variance expliqué",
+        col = "steelblue",
+        border = "white")
+```
+
+## Quality of Representation of Individuals and Variables
+
+```{r mca-quality-var}
+cos2_var_mca <- round(sort(rowSums(mca_result$var$cos2[, 1:2])), digits = 3)
+```
+
+The modality `BMI.Category_Normal` is the best represented on the first principal plane, with a cos² of `r cos2_var_mca["BMI.Category_Normal"]`, while `BMI.Category_Obese` is the least well represented, with a $\cos^2$ of `r cos2_var_mca["BMI.Category_Obese"]`. The categories related to sleep and the blood pressure profiles are also well represented, with $\cos^2$ values ≥ 0.669. In contrast, the sleep profiles, particularly `Below 6.5` and `6.5 to 7.5`, are less well represented, with $\cos^2$ values of 0.284 and 0.444, respectively.
+
+
+```{r mca-quality-ind}
+cos2_ind_mca <- round(rowSums(mca_result$ind$cos2[, 1:2]), 2)
+pct_well_represented <- round(sum(cos2_ind_mca > 0.5) / length(cos2_ind_mca) * 100, 0)
+```
+
+Looking now at the $\cos^2$ of individuals, we observe that **`r pct_well_represented`%** of individuals are well represented ($\cos^2$ ≥ 0.5).
+
+## Visualization and interpretation
+
+```{r mca-plot}
+#| fig.width: 10
+#| fig.height: 7
+
+fviz_mca_var(mca_result,
+             col.var = "cos2",
+             gradient.cols = c("lightblue", "darkblue"),           
+             repel = TRUE, 
+             title = "Analyse des Correspondances Multiples")
+```
+
+The MCA plot shows a strong association between the absence of a sleep disorder (`None`), a standard BMI category (`BMI.Category_Normal`), and normal blood pressure (`BP_Profile_Normal`). These modalities are also positioned closer to the categories `6.5 to 7.5` and `Above 7.5`, suggesting a link between favorable health status and longer or more balanced nights of sleep.
+
+Conversely, the modalities `BMI.Category_Overweight`, `BP_Profile_Hypertension`, and `Below 6.5` are also close to each other, indicating an association between overweight, hypertension, and "insufficient" sleep duration. Additionally, sleep disorders such as sleep apnea (`Sleep Apnea`) and insomnia (`Insomnia`) are located near this group of modalities, further suggesting a connection between sleep disorders and health.
+
+# Conclusions
+
+In this study, we thoroughly explored the relationships between sleep, health, and lifestyle through a multidimensional analysis integrating PCA, MCA, and clustering.
+
+PCA allowed us to identify underlying structures in the data, notably revealing a negative relationship between stress levels and sleep duration, as well as a positive relationship between age and sleep duration. The PCA results also highlighted an opposition in sleep quality between individuals with low and high BMI. These findings underscore the role that emotional factors (such as stress) and physical factors (such as BMI) can play in sleep mechanisms.
+
+MCA confirmed these observations, showing significant associations between sleep disorders (such as apnea and insomnia) and risk factors like overweight and hypertension. In contrast, optimal sleep durations (6.5–7.5 hours) are associated with normal BMI and stable blood pressure, highlighting the importance of a healthy lifestyle in maintaining good sleep quality.
+
+Finally, clustering reinforced the intuition of distinct profiles within the sample. Four major groups were identified. The first group, characterized by high stress levels, shows shorter sleep durations. The second group, characterized by the absence of sleep disorders and normal BMI, exhibits longer sleep durations. A third group, older in age, suffers from hypertension and shows lower sleep quality. These results support the existence of varied profiles influenced by specific health and lifestyle factors.
+
+In conclusion, this multidimensional analysis demonstrated that sleep and health are closely interconnected. The results emphasize the importance of an integrated approach to sleep that considers not only physical factors but also emotional ones, in order to promote quality sleep and, consequently, better overall health.
+
+
+# Appendix
+
+## Summary Statistics
+
+```{r}
+#| label: tbl-summary-stats
+#| tbl-cap: "Statistiques descriptives des variables quantitatives"
+
+quanti_data <- sleep_data[1:9]
+knitr::kable(generate_summary_stats(quanti_data))
+```
