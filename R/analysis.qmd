@@ -167,23 +167,7 @@ Usually, the principal components retained are those whose **eigenvalues are gre
 #| fig.height: 5
 #| fig.width: 7
 
-par(mar = c(5, 4, 4, 5))
-
-# Barplot des valeurs propres
-barplot(pca_result$eig[, "eigenvalue"],
-        xlab = expression(alpha), 
-        ylab = expression(lambda[alpha]),
-        col = "lightgray")
-abline(h = 1, lty = "dashed", col = "red", lwd = 2)
-
-# Ligne de variance cumulée
-par(new = TRUE)
-plot(1:9, pca_result$eig[, "cumulative percentage of variance"], 
-     type = "b",
-     xlab = "", ylab = "", xaxt = "n", yaxt = "n", 
-     col = "red", pch = 16)
-axis(side = 4)
-mtext("% de variance cumulé", side = 4, line = 3)
+plot_scree(pca_result)
 ```
 
 ### Table
@@ -378,7 +362,7 @@ In our case, the partition into 4 clusters explains **`r bss_tss_hier`%** of the
 
 ## K-means
 
-After identifying 4 clusters using hierarchical clustering, we apply a K-means algorithm to refine this partition. The goal is to improve the BSS/TSS ratio, as although Ward's algorithm produced a 4-cluster classification, there is no guarantee that it represents the optimal partition into 4 clusters.
+After identifying 4 clusters using hierarchical clustering, we apply a K-means algorithm to refine this partition. The goal is to improve the BSS/TSS ratio, as although Ward's algorithm produced a 4-cluster classification, there is no guarantee that it represents the optimal 4 clusters' partition.
 
 
 ```{r kmeans-clustering}
@@ -412,8 +396,7 @@ fviz_pca_ind(pca_clust,
              habillage = "class",
              addEllipses = TRUE,
              select.ind = list(cos2 = 0.5),
-             title = "") +
-  theme(legend.position = "right")
+             title = "")
 ```
 
 This plot represents the PCA individuals' map, with coloring based on the clusters obtained above.
@@ -453,18 +436,20 @@ The first two principal axes capture nearly **`r round(sum(mca_result$eig[1:2, 2
 #| fig.height: 4
 
 barplot(mca_result$eig[, "percentage of variance"], 
-        ylab = "Pourcentage de variance expliqué",
-        col = "steelblue",
-        border = "white")
+        ylab = "%Variance Explained",
+        col = "lightgray")
 ```
 
 ## Quality of Representation of Individuals and Variables
 
 ```{r mca-quality-var}
+#| label: tbl-cos2-var
+#| tbl-cap: "Variable representation quality (cos²) on the first factorial plane"
 cos2_var_mca <- round(sort(rowSums(mca_result$var$cos2[, 1:2])), digits = 3)
+knitr::kable(round(cos2_var_mca,2))
 ```
 
-The modality `BMI.Category_Normal` is the best represented on the first principal plane, with a cos² of `r cos2_var_mca["BMI.Category_Normal"]`, while `BMI.Category_Obese` is the least well represented, with a $\cos^2$ of `r cos2_var_mca["BMI.Category_Obese"]`. The categories related to sleep and the blood pressure profiles are also well represented, with $\cos^2$ values ≥ 0.669. In contrast, the sleep profiles, particularly `Below 6.5` and `6.5 to 7.5`, are less well represented, with $\cos^2$ values of 0.284 and 0.444, respectively.
+Based on @tbl-cos2-var, we see that the modality `BMI.Category_Normal` is the best represented on the first principal plane, with a $\cos^2$  of `r cos2_var_mca["BMI.Category_Normal"]`, while `BMI.Category_Obese` is the least well represented, with a $\cos^2$ of `r cos2_var_mca["BMI.Category_Obese"]`. The categories related to sleep and the blood pressure profiles are also well represented, with $\cos^2$ values ≥ 0.669. In contrast, the sleep profiles, particularly `Below 6.5` and `6.5 to 7.5`, are less well represented, with $\cos^2$ values of 0.284 and 0.444, respectively.
 
 
 ```{r mca-quality-ind}
@@ -473,6 +458,15 @@ pct_well_represented <- round(sum(cos2_ind_mca > 0.5) / length(cos2_ind_mca) * 1
 ```
 
 Looking now at the $\cos^2$ of individuals, we observe that **`r pct_well_represented`%** of individuals are well represented ($\cos^2$ ≥ 0.5).
+
+```{r}
+#| label: tbl-var-contrib
+#| tbl-cap: "Variable contributions to the first factorial plane"
+cos2_var_contrib <- mca_result$var$contrib[,c(1,2)]
+knitr::kable(round(cos2_var_contrib,2))
+```
+
+The contributions of the different modalities to the first two dimensions of the MCA reveal interesting patterns. `BMI.Category_Overweight` (17.575) and `BMI.Category_Normal` (13.819) show notable contributions to Dimension 1, indicating that they are well differentiated along this axis. The blood pressure profiles `BP_Profile_Hypertension` (10.399) and `BP_Profile_Normal` (15.021) also contribute substantially to Dimension 1. On the other hand, `Insomnia` (22.971) and `Sleep Apnea` (28.959) are strongly represented on Dimension 2, suggesting a strong relationship with this dimension. The categories `Above 7.5` (23.655) and `6.5 to 7.5` (23.479) also stand out on Dimension 2, while `Below 6.5` (7.139) shows a lower contribution to both dimensions (see @tbl-var-contrib).
 
 ## Visualization and interpretation
 
@@ -510,7 +504,7 @@ In conclusion, this multidimensional analysis demonstrated that sleep and health
 
 ```{r}
 #| label: tbl-summary-stats
-#| tbl-cap: "Statistiques descriptives des variables quantitatives"
+#| tbl-cap: "Summary Statistics of quantitative variables"
 
 quanti_data <- sleep_data[1:9]
 knitr::kable(generate_summary_stats(quanti_data))
